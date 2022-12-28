@@ -1,0 +1,16 @@
+.idea/
+.env
+.DS_Store
+*.csv
+
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+dist/
+build/
+.coverage
+.tox/
+.pytest_cache/
+*.egg
+*.egg-info/
