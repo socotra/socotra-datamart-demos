@@ -320,3 +320,51 @@ WHERE pc.issued_timestamp >= @startTimestamp
     AND pc.issued_timestamp < @endTimestamp
     AND pc.replaced_timestamp IS NULL
 
+/**
+ * Current policy status summary
+ *   This example produces a simple table of [policy locator, current status]
+ *   rows following simplified derivation logic seen in Core UI.
+ *
+ *   The idea is to collect all active grace periods for each policy, plus
+ *   all of the "status-bearing" policy modifications that have effective
+ *   timestamps <= now. From that mod set, for each policy, we pick the
+ *   one mod with maximum effective timestamp AND issued timestamp, and then
+ *   set the current status as follows:
+ *     - Does this policy have an active grace period? Then 'in grace period'
+ *     - Else, the status is mapped from the status-bearing policy mod
+ */
+SET @now = UNIX_TIMESTAMP() * 1000;
+SELECT raw_data.policy_locator,
+       CASE
+           WHEN(raw_data.grace_locator IS NOT NULL)
+                THEN 'in grace period'
+                ELSE
+                    CASE raw_data.mod_type
+                        WHEN 'cancel' THEN 'cancelled'
+                        WHEN 'create' THEN 'issued'
+                        WHEN 'lapse' THEN 'lapsed'
+                        WHEN 'reinstate' THEN 'reinstated'
+                    END
+       END AS current_status
+FROM
+(SELECT latest_status_mods.policy_locator,
+       latest_status_mods.mod_type,
+       active_graces.grace_locator
+FROM
+    (SELECT DISTINCT policy_locator,
+                    FIRST_VALUE(type) OVER
+                        (PARTITION BY policy_locator ORDER BY effective_timestamp DESC, issued_timestamp DESC) mod_type
+        FROM policy_modification
+        WHERE effective_timestamp <= @now
+        AND type IN ('create', 'cancel', 'lapse', 'reinstate')) latest_status_mods
+LEFT OUTER JOIN
+    (SELECT gp.locator grace_locator, gp.policy_locator
+     FROM
+     grace_period gp
+     WHERE
+        gp.start_timestamp <= @now
+        AND
+        gp.end_timestamp >= @now
+        AND
+        gp.settled_timestamp IS NULL) active_graces
+ON active_graces.policy_locator=latest_status_mods.policy_locator) raw_data;
