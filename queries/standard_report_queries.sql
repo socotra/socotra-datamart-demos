@@ -1,106 +1,13 @@
 /**
- * Count of policyholders
+ * A collection of Data Mart-equivalent queries for the
+ * Socotra standard reports set (https://docs.socotra.com/production/data/reporting.html)
  */
-SELECT COUNT(*) FROM policyholder;
+
 
 /**
- * Count of policies
- */
-SELECT COUNT(*) FROM policy;
-
-/**
- * Select all in-effect policies with monthly payment schedules
- */
-SELECT *
-FROM policy
-WHERE `issued_timestamp` IS NOT NULL
-    AND `cancellation_timestamp` IS NULL
-    AND `payment_schedule_name` LIKE 'monthly'
-    AND `policy_start_timestamp` < NOW()
-    AND `policy_end_timestamp` > NOW();
-
-/**
- * Select all policies issued with written premium within an interval
- */
-SET @start_timestamp = unix_timestamp('2022-01-01') * 1000;
-SET @end_timestamp = unix_timestamp('2022-07-01') * 1000;
-SET @as_of_timestamp = unix_timestamp('2022-07-01') * 1000;
-
-SELECT
-pol.locator,
-exp.name AS exp_name, exp.locator AS exp_locator,
-per.name AS per_name, per.locator AS per_locator,
-from_unixtime(MIN(per_c.start_timestamp/1000, '%Y-%m-%d')) AS effective_date,
-from_unixtime(MAX(per_c.end_timestamp/1000, '%Y-%m-%d')) AS expiry_date,
-SUM(per_c.premium) AS premium
-FROM policy pol
-JOIN exposure exp ON pol.locator = exp.policy_locator
-JOIN peril per ON exp.locator = per.exposure_locator
-JOIN peril_characteristics per_c ON per.locator = per_c.peril_locator
--- Policy is issued within the range provided
-WHERE pol.issued_timestamp between @start_timestamp AND @end_timestamp
--- Keep all transactions created after the "as of" date before that date
-AND per_c.created_timestamp <= @as_of_timestamp
--- Keep all transactions which have not been replaced before the "as of" date
-AND (
-    per_c.replaced_timestamp > @as_of_timestamp
-    OR
-    per_c.replaced_timestamp is null
-)
-GROUP BY exp_locator, exp_name, per_locator
-ORDER BY pol.locator;
-
-/**
- * Summarize specific set of field values with corresponding characteristics
- * and policy locators, across all policies
- */
-SELECT
-pc.policy_locator,
-pc.start_timestamp,
-pc.end_timestamp,
-pcf.policy_characteristics_locator,
-pcf.parent_locator,
--- Basic template for each field: MAX for aggregation requirement and null filter
-MAX(CASE WHEN pcf.field_name = "driver_firstname" THEN pcf.field_value END) "driver_firstname",
-MAX(CASE WHEN pcf.field_name = "driver_lastname" THEN pcf.field_value END) "driver_lastname",
-MAX(CASE WHEN pcf.field_name = "driver_designation" THEN pcf.field_value END) "driver_designation"
-FROM policy_characteristics_fields pcf
-JOIN policy_characteristics pc ON pcf.policy_characteristics_locator = pc.locator
-WHERE parent_name = "drivers"
-GROUP BY pcf.policy_characteristics_locator, pcf.parent_locator
-ORDER BY pcf.policy_characteristics_locator, pcf.parent_locator ASC;
-
-/**
- * Categorized count of all modifications on a policy
- */
-SET @policy_locator = 'locator-value';
-
-SELECT pm.type as modification_type, COUNT(pm.type) as count
-FROM policy_modification pm
-WHERE pm.policy_locator = @policy_locator
-GROUP BY pm.type;
-
-/**
- * Fetch grace periods for a given policy
- */
-SET @policy_locator = 'locator-value';
-
-SELECT * FROM grace_period WHERE policy_locator = @policy_locator;
-
-/**
- * Summarize financial transactions on invoices for a policy
- */
-SET @policy_locator = 'locator-value';
-
-SELECT tx.type, tx.amount,
-    tx.peril_characteristics_locator, tx.invoice_locator,
-    invoice.due_timestamp, invoice.settlement_status, invoice.settlement_type
-FROM financial_transaction tx
-JOIN invoice ON tx.invoice_locator = invoice.locator
-WHERE tx.policy_locator = @policy_locator;
-
-/**
- * Raw "on-risk" report, with field values at various levels aggregated
+ * On Risk report
+ *
+ * Field values at various levels aggregated
  * into a JSON representation for post-fetch-processing
  */
 SET time_zone = '-07:00';
@@ -146,7 +53,9 @@ WHERE
 ORDER BY policy_id;
 
 /**
- * Raw "all policies" report, with field values at various levels aggregated
+ * All Policies report
+ *
+ * Field values at various levels aggregated
  * into a JSON representation for post-fetch-processing
  */
 SET @startTimestamp = unix_timestamp('2022-11-22') * 1000;
@@ -184,7 +93,7 @@ WHERE policy.product_name = @productName
     AND peril_characteristics.replaced_timestamp IS NULL;
 
 /**
- * Financial transactions report
+ * Financial Transactions report
  *
  * NOTE: this includes all financial transactions (FTs), including any that were
  * never assigned to issued invoices. If you only want to consider FTs on
@@ -209,41 +118,10 @@ SELECT
 FROM financial_transaction ft JOIN policy ON policy.locator = ft.policy_locator
 LEFT JOIN peril_characteristics pc ON pc.locator = ft.peril_characteristics_locator
 LEFT JOIN peril ON peril.locator = pc.peril_locator
-WHERE ft.posted_timestamp >= @startTimestamp AND ft.posted_timestamp < @endTimestamp
+WHERE ft.posted_timestamp >= @startTimestamp AND ft.posted_timestamp < @endTimestamp;
 
 /**
- * Get invoices with unearned premium
- */
-SET @asOfTimestamp = unix_timestamp('2022-01-01') * 1000;
-
-SELECT
-    inv.locator,
-    inv.policy_locator
-FROM invoice inv
-JOIN policy p ON p.locator = inv.policy_locator
-WHERE inv.created_timestamp <= @asOfTimestamp
-ORDER BY inv.id ASC;
-
-/**
- * Get premium financial transactions for an invoice
- */
-SET @invoiceLocator = '';
-
-SELECT
-    ft.amount,
-    p.currency,
-    ft.start_timestamp,
-    ft.end_timestamp,
-    inv.due_timestamp,
-    inv.created_timestamp
-FROM invoice inv
-JOIN financial_transaction ft ON ft.invoice_locator = inv.locator
-JOIN policy p ON inv.policy_locator = p.locator
-WHERE ft.type = 'premium'
-  AND inv.locator = @invoiceLocator;
-
-/**
- * Unearned premium accounts receivable
+ * Unearned Premium Accounts Receivable report
  */
 SET @reportTimestamp = unix_timestamp('2022-11-22') * 1000;
 
@@ -277,94 +155,201 @@ WHERE total_amount > 0
 ORDER BY policy_locator ASC;
 
 /**
- * Simple gross written premium metrics
+ * Paid Financial Transactions report
  */
--- GWP agg by product
-SET @startTimestmap = unix_timestamp('2022-11-22') * 1000;
+SET @startTimestamp = unix_timestamp('2022-11-22') * 1000;
 SET @endTimestamp = unix_timestamp('2022-12-22') * 1000;
 
-SELECT p.product_name AS product_name, SUM(pc.premium)
-FROM peril_characteristics pc
-JOIN policy p ON pc.policy_locator = p.locator
-WHERE pc.issued_timestamp >= @startTimestamp
-    AND pc.issued_timestamp < @endTimestamp
-    AND pc.replaced_timestamp IS NULL
-GROUP BY p.product_name;
-
--- GWP agg by policy
-SET @startTimestmap = unix_timestamp('2022-11-22') * 1000;
-SET @endTimestamp = unix_timestamp('2022-12-22') * 1000;
-
-SELECT p.locator AS policyLocator, SUM(pc.premium)
-FROM peril_characteristics pc
-JOIN policy p ON pc.policy_locator = p.locator
-WHERE pc.issued_timestamp >= @startTimestamp
-    AND pc.issued_timestamp < @endTimestamp
-    AND pc.replaced_timestamp IS NULL
-GROUP BY p.locator;
-
--- GWP agg by peril characteristics
--- GWP agg by characteristics
-SET @startTimestmap = unix_timestamp('2022-11-22') * 1000;
-SET @endTimestamp = unix_timestamp('2022-12-22') * 1000;
-
-SELECT pc.premium, policy.product_name AS productName, policy.locator as policyLocator,
-       exposure.name AS exposureName, peril.name AS perilName,
-       pc.locator AS perilCharacteristicsLocator
-FROM peril_characteristics pc
-JOIN peril ON pc.peril_locator = peril.locator
-JOIN exposure_characteristics ec ON pc.exposure_characteristics_locator = ec.locator
-JOIN exposure ON exposure.locator = ec.exposure_locator
-JOIN policy ON pc.policy_locator = policy.locator
-WHERE pc.issued_timestamp >= @startTimestamp
-    AND pc.issued_timestamp < @endTimestamp
-    AND pc.replaced_timestamp IS NULL
+SELECT
+        ft.id,
+        ft.amount,
+        policy.currency,
+        ft.posted_timestamp,
+        ft.type,
+        ft.invoice_locator AS invoice_locator,
+        policy.locator AS policy_locator,
+        policy.product_name AS product_name,
+        ft.peril_characteristics_locator,
+        ft.peril_name,
+        ft.tax_name,
+        ft.fee_name,
+        ft.commission_recipient,
+        i.locator AS invoice_locator,
+        i.created_timestamp AS invoice_created_timestamp,
+        i.due_timestamp AS invoice_due_timestamp,
+        invoice_payment.posted_timestamp AS payment_posted_timestamp,
+        exposure_characteristics.exposure_locator AS exposure_id,
+        policy_modification.name AS modification_name
+FROM financial_transaction ft
+JOIN policy ON policy.locator = ft.policy_locator
+JOIN invoice i ON i.locator = ft.invoice_locator
+JOIN invoice_payment ON invoice_payment.invoice_locator = i.locator
+    AND invoice_payment.reverse_timestamp IS NULL
+JOIN policy_modification ON policy_modification.locator = ft.policy_modification_locator
+LEFT JOIN peril_characteristics pc ON pc.locator = ft.peril_characteristics_locator
+LEFT JOIN peril ON peril.locator = pc.peril_locator
+LEFT JOIN exposure_characteristics ON exposure_characteristics.locator = pc.exposure_characteristics_locator
+WHERE i.status = 'paid'
+AND invoice_payment.posted_timestamp >= @startTimestamp
+AND invoice_payment.posted_timestamp < @endTimestamp;
 
 /**
- * Current policy status summary
- *   This example produces a simple table of [policy locator, current status]
- *   rows following simplified derivation logic seen in Core UI.
- *
- *   The idea is to collect all active grace periods for each policy, plus
- *   all of the "status-bearing" policy modifications that have effective
- *   timestamps <= now. From that mod set, for each policy, we pick the
- *   one mod with maximum effective timestamp AND issued timestamp, and then
- *   set the current status as follows:
- *     - Does this policy have an active grace period? Then 'in grace period'
- *     - Else, the status is mapped from the status-bearing policy mod
+ * Payable Commissions report
  */
-SET @now = UNIX_TIMESTAMP() * 1000;
-SELECT raw_data.policy_locator,
-       CASE
-           WHEN(raw_data.grace_locator IS NOT NULL)
-                THEN 'in grace period'
-                ELSE
-                    CASE raw_data.mod_type
-                        WHEN 'cancel' THEN 'cancelled'
-                        WHEN 'create' THEN 'issued'
-                        WHEN 'lapse' THEN 'lapsed'
-                        WHEN 'reinstate' THEN 'reinstated'
-                    END
-       END AS current_status
+SET @startTimestamp = unix_timestamp('2022-11-22') * 1000;
+SET @endTimestamp = unix_timestamp('2022-12-22') * 1000;
+
+SELECT policy.locator policy_locator,
+       policy.product_name,
+       exposure.locator exposure_locator,
+       exposure.name exposure_name,
+       premium_and_commission.peril_locator,
+       peril.name peril_name,
+       premium_and_commission.commission_recipient,
+       premium_and_commission.peril_invoice_premium peril_premium,
+       premium_and_commission.peril_invoice_commission commission_amount
 FROM
-(SELECT latest_status_mods.policy_locator,
-       latest_status_mods.mod_type,
-       active_graces.grace_locator
-FROM
-    (SELECT DISTINCT policy_locator,
-                    FIRST_VALUE(type) OVER
-                        (PARTITION BY policy_locator ORDER BY effective_timestamp DESC, issued_timestamp DESC) mod_type
-        FROM policy_modification
-        WHERE effective_timestamp <= @now
-        AND type IN ('create', 'cancel', 'lapse', 'reinstate')) latest_status_mods
-LEFT OUTER JOIN
-    (SELECT gp.locator grace_locator, gp.policy_locator
-     FROM
-     grace_period gp
-     WHERE
-        gp.start_timestamp <= @now
-        AND
-        gp.end_timestamp >= @now
-        AND
-        gp.settled_timestamp IS NULL) active_graces
-ON active_graces.policy_locator=latest_status_mods.policy_locator) raw_data;
+    (SELECT
+           commission_summary.peril_locator,
+           commission_summary.peril_invoice_commission,
+           commission_summary.commission_recipient,
+           premium_summary.peril_invoice_premium
+    FROM
+        (SELECT
+            pc.peril_locator,
+            -1 * SUM(ft.amount) AS peril_invoice_commission,
+            ft.commission_recipient
+        FROM invoice i
+        JOIN financial_transaction ft ON ft.invoice_locator = i.locator
+        JOIN peril_characteristics pc ON pc.locator = ft.peril_characteristics_locator
+        WHERE i.status = 'paid'
+          AND i.updated_timestamp >= @startTimestamp
+          AND i.updated_timestamp < @endTimestamp
+          AND ft.type='commission'
+        GROUP BY pc.peril_locator, ft.commission_recipient) commission_summary
+    JOIN
+        (SELECT
+            pc.peril_locator,
+            SUM(ft.amount) AS peril_invoice_premium
+        FROM invoice i
+        JOIN financial_transaction ft ON ft.invoice_locator = i.locator
+        JOIN peril_characteristics pc on pc.locator = ft.peril_characteristics_locator
+        WHERE i.status='paid'
+          AND i.updated_timestamp >= @startTimestamp
+          AND i.updated_timestamp < @endTimestamp
+          AND ft.type = 'premium'
+        GROUP BY pc.peril_locator) premium_summary
+    ON commission_summary.peril_locator=premium_summary.peril_locator) premium_and_commission
+JOIN peril ON premium_and_commission.peril_locator = peril.locator
+JOIN exposure ON peril.exposure_locator = exposure.locator
+JOIN policy ON policy.locator = exposure.policy_locator;
+
+
+/**
+ * Claims report
+ */
+SET @asOfTimestamp = unix_timestamp('2022-11-22') * 1000;
+
+SELECT
+    p.policyholder_locator,
+    p.locator AS policy_locator,
+    c.locator AS claim_locator,
+    c.created_timestamp AS created_timestamp,
+    c.product_name AS product_name,
+    sc.loss_reserve_id AS loss_reserve_id,
+    sc.expense_reserve_id AS expense_reserve_id,
+    claim_versions.claim_status AS claim_status,
+    claim_versions.incident_timestamp AS incident_timestamp,
+    claim_versions.notification_timestamp AS notification_timestamp
+FROM claim c
+INNER JOIN
+(SELECT ranked_claim_versions.claim_version_id claim_version_id,
+        ranked_claim_versions.claim_locator claim_locator,
+        ranked_claim_versions.claim_status claim_status,
+        ranked_claim_versions.incident_timestamp incident_timestamp,
+        ranked_claim_versions.notification_timestamp notification_timestamp
+    FROM
+    (SELECT RANK()
+        OVER (PARTITION BY cv.claim_locator
+              ORDER BY cv.created_timestamp DESC) claim_locator_rank,
+            cv.id claim_version_id,
+            cv.claim_locator claim_locator,
+            cv.claim_status,
+            cv.incident_timestamp,
+            cv.notification_timestamp
+     FROM claim_version cv
+     WHERE cv.created_timestamp <= @asOfTimestamp) ranked_claim_versions
+WHERE ranked_claim_versions.claim_locator_rank = 1) claim_versions
+ON claim_versions.claim_locator = c.locator
+LEFT JOIN sub_claim sc ON sc.claim_locator = c.locator
+INNER JOIN policy p ON c.policy_locator = p.locator
+WHERE c.created_timestamp <= @asOfTimestamp
+AND c.discarded = FALSE
+ORDER BY c.created_timestamp ASC;
+
+/**
+ * Claim Reserves report
+ */
+SET @asOfTimestamp = unix_timestamp('2022-11-22') * 1000;
+
+SELECT
+    p.policyholder_locator,
+    p.locator AS policy_locator,
+    c.locator AS claim_locator,
+    sc.locator AS sub_claim_locator,
+    sc.loss_reserve_id AS loss_reserve_id,
+    sc.expense_reserve_id AS expense_reserve_id,
+    p.product_name,
+    peril.locator AS peril_locator,
+    peril.name AS peril_name,
+    (
+        SELECT claim_status
+        FROM claim_version cv
+        WHERE cv.claim_locator = c.locator
+          AND cv.created_timestamp <= @asOfTimestamp
+        ORDER BY cv.id DESC
+        LIMIT 1
+    ) AS claim_status
+FROM sub_claim sc
+JOIN claim c ON sc.claim_locator = c.locator
+JOIN policy p ON sc.policy_locator = p.locator
+JOIN peril ON sc.peril_locator = peril.locator
+WHERE sc.created_timestamp <= @asOfTimestamp;
+
+/**
+ * Claims Payables report
+ */
+SET @startTimestamp = unix_timestamp('2022-11-22') * 1000;
+SET @endTimestamp = unix_timestamp('2022-12-22') * 1000;
+
+SELECT
+    policy.policyholder_locator,
+    policy.locator policy_locator,
+    policy.currency,
+    c.product_name,
+    e.locator exposure_locator,
+    e.name exposure_name,
+    peril.locator peril_locator,
+    peril.name,
+    c.locator claim_id,
+    sc.locator subclaim_id,
+    sc.created_timestamp subclaim_created_timestamp,
+    cp.locator payable_id,
+    cp.amount payable_amount,
+    cp.reserve_type,
+    cp.recipient,
+    cp.comment,
+    IF(reversal.locator IS NULL, 'false', 'true') was_reversed,
+    reversal.comment reversal_comment
+FROM claim c
+JOIN policy ON c.policy_locator = policy.locator
+JOIN sub_claim sc ON sc.claim_locator = c.locator
+JOIN peril ON sc.peril_locator = peril.locator
+JOIN exposure e ON e.locator = peril.exposure_locator
+JOIN claim_payable cp ON cp.sub_claim_locator = sc.locator
+LEFT JOIN claim_payable reversal ON
+    reversal.reversed_locator = cp.locator
+    AND cp.created_timestamp >= @startTimestamp
+    AND cp.created_timestamp < @endTimestamp
+    AND cp.reversed_locator IS NULL
+ORDER BY cp.created_timestamp ASC;
