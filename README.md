@@ -2,7 +2,7 @@
 
 This repository has two components:
 * `main.py`: sample script demonstrating use of the `socotra-datamart-reports` package
-* `queries`: sample queries for common reporting tasks and exploration
+* `queries`: sample queries for common reporting tasks and exploration, including equivalents for [Socotra standard reports](https://docs.socotra.com/production/api/reporting.html)
 
 Most of Socotra's standard reports can be run from a single query. Field value summarization tends to require post-processing, which is why we offer the `socotra-datamart-reports` as a quick-start library. See [PyPI for details](https://pypi.org/project/socotra-datamart-reports/). 
 

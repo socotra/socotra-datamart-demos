@@ -15,7 +15,11 @@ FROM
             pc.peril_locator peril_locator,
                   CASE
                       WHEN(pc.end_timestamp > @asOfTimestamp)
-                           THEN pc.premium * ((@asOfTimestamp - pc.start_timestamp) / (pc.end_timestamp - pc.start_timestamp))
+                           THEN pc.premium *
+                                (TIMESTAMPDIFF(DAY, FROM_UNIXTIME(pc.start_timestamp/1000),
+                                    FROM_UNIXTIME(@as_of_timestamp/1000)) /
+                                 TIMESTAMPDIFF(DAY, FROM_UNIXTIME(pc.start_timestamp/1000),
+                                     FROM_UNIXTIME(pc.end_timestamp/1000)))
                             ELSE pc.premium
                       END AS prorated_premium
     FROM peril_characteristics pc
