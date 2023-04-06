@@ -114,7 +114,7 @@ SELECT
       ft.peril_name,
       ft.tax_name,
       ft.fee_name,
-      ft.commission_recipient,
+      ft.commission_recipient
 FROM financial_transaction ft JOIN policy ON policy.locator = ft.policy_locator
 LEFT JOIN peril_characteristics pc ON pc.locator = ft.peril_characteristics_locator
 LEFT JOIN peril ON peril.locator = pc.peril_locator
