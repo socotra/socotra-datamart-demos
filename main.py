@@ -16,25 +16,28 @@ if __name__ == "__main__":
           'database': os.environ.get('REPORT_DATABASE')
      }
 
+     OUTPUT_DIR = 'output'
+
+     os.makedirs(OUTPUT_DIR, exist_ok=True)
      start_timestamp = 1659326400000
      end_timestamp = 1864596800000
 
      orr = OnRiskReport(creds)
      orr.write_on_risk_report(
           'personal-auto', start_timestamp,
-          f'on_risk_report_{start_timestamp}.csv')
+          os.path.join(OUTPUT_DIR, 'on_risk_report_{start_timestamp}.csv'))
 
      apr = AllPoliciesReport(creds)
      apr.write_all_policies_report(
           'personal-auto', start_timestamp, end_timestamp,
-          f'all_policies_report_{start_timestamp}-{end_timestamp}.csv')
+          os.path.join(OUTPUT_DIR, f'all_policies_report_{start_timestamp}-{end_timestamp}.csv'))
 
      tfir = TransactionFinancialImpactReport(creds)
      tfir.write_transaction_financial_impact_report(
           'personal-auto', start_timestamp, end_timestamp,
-          f'txn_financial_impact_report_{start_timestamp}-{end_timestamp}.csv')
+          os.path.join(OUTPUT_DIR, f'txn_financial_impact_report_{start_timestamp}-{end_timestamp}.csv'))
 
      ftr = FinancialTransactionsReport(creds)
      ftr.write_financial_transactions_report(
           start_timestamp, end_timestamp,
-          f'financial_txns_{start_timestamp}-{end_timestamp}.csv')
+          os.path.join(OUTPUT_DIR, f'financial_txns_{start_timestamp}-{end_timestamp}.csv'))
