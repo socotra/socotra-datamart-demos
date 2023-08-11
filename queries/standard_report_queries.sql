@@ -124,7 +124,7 @@ WHERE ft.posted_timestamp >= @startTimestamp AND ft.posted_timestamp < @endTimes
  * Unearned Premium Accounts Receivable report
  */
 SET @reportTimestamp = unix_timestamp('2022-11-22') * 1000;
-
+SET @currencyDecimal = 2; -- affects rounding
 SELECT * FROM
     (SELECT policy_locator,
            product_name,
@@ -135,23 +135,24 @@ SELECT * FROM
     (SELECT policy_locator,
            product_name,
            amount,
-           ((earnedTimeMillis / coveragePeriodMillis) * amount) earned_amount,
-           (amount - ((earnedTimeMillis / coveragePeriodMillis) * amount)) unearned_amount
+           (amount - round(((unearnedTimeMillis / coveragePeriodMillis) * amount), @currencyDecimal)) earned_amount,
+           round(((unearnedTimeMillis / coveragePeriodMillis) * amount), @currencyDecimal) unearned_amount
         FROM
         (SELECT
             p.locator policy_locator,
             p.product_name product_name,
             ft.amount amount,
             (ft.end_timestamp - ft.start_timestamp) coveragePeriodMillis,
-            (@reportTimestamp - ft.start_timestamp) earnedTimeMillis
+            IF(@reportTimestamp < ft.end_timestamp,
+                ft.end_timestamp - @reportTimestamp,
+                0) unearnedTimeMillis
         FROM invoice inv
         JOIN financial_transaction ft ON ft.invoice_locator = inv.locator
         JOIN policy p ON inv.policy_locator = p.locator
         WHERE ft.type = 'premium'
-            AND inv.created_timestamp <= @reportTimestamp
-            AND ft.end_timestamp >= @reportTimestamp) AS txns) AS txnsWithEarnedUnearned
+            AND inv.created_timestamp <= @reportTimestamp) AS txns) AS txnsWithEarnedUnearned
     GROUP BY policy_locator, product_name) AS intermediateReport
-WHERE total_amount > 0
+WHERE unearned_amount != 0 -- omit to include fully-earned records as well
 ORDER BY policy_locator ASC;
 
 /**
